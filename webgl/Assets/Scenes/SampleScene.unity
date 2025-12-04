@@ -231,6 +231,7 @@ GameObject:
   - component: {fileID: 590511413}
   - component: {fileID: 590511412}
   - component: {fileID: 590511414}
+  - component: {fileID: 590511415}
   m_Layer: 0
   m_Name: gamemanager
   m_TagString: Untagged
@@ -286,6 +287,19 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   liink: https://contra.com/lohr_bettina_68155kak
+--- !u!114 &590511415
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 590511411}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 56079fe2c2c40df49b738520162f5fae, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  target: {fileID: 590511413}
 --- !u!1 &686607964
 GameObject:
   m_ObjectHideFlags: 0

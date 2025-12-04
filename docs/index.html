@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Unity + AR.js</title>
+    <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
+    <script src="https://raw.githack.com/AR-js-org/AR.js/master/aframe/build/aframe-ar.min.js"></script>
+    <style>
+        body, html { margin: 0; overflow: hidden; }
+        #unity-canvas { position: absolute; top: 0; left: 0; z-index: 10; }
+    </style>
+</head>
+
+<body>
+
+<!-- AR.js scene -->
+<a-scene 
+    embedded
+    arjs="trackingMethod: best; sourceType: webcam;"
+>
+    <a-marker type="pattern" url="visitenkartenmarker.patt" id="marker">
+        <!-- Empty marker; AR transforms only -->
+    </a-marker>
+    <a-entity camera></a-entity>
+</a-scene>
+
+<!-- Unity canvas overlay -->
+<canvas id="unity-canvas"></canvas>
+
+<script>
+let unityInstance = null;
+
+// Start Unity
+createUnityInstance(document.querySelector("#unity-canvas"), {
+    dataUrl: "Build/builds.data.unityweb",
+    frameworkUrl: "Build/builds.framework.js.unityweb",
+    codeUrl: "Build/builds.wasm.unityweb"
+}).then((u) => {
+    unityInstance = u;
+});
+
+// AR.js pose → Unity WebGL function
+AFRAME.registerComponent("sendpose", {
+    tick: function () {
+        if (!unityInstance) return;
+
+        let marker = document.querySelector("#marker");
+        let object3D = marker.object3D;
+        if (!object3D.visible) return;
+
+        let pos = object3D.getWorldPosition(new THREE.Vector3());
+        let quat = object3D.getWorldQuaternion(new THREE.Quaternion());
+
+        let pose = {
+            px: pos.x,
+            py: pos.y,
+            pz: pos.z,
+            qx: quat.x,
+            qy: quat.y,
+            qz: quat.z,
+            qw: quat.w
+        };
+
+        unityInstance.SendMessage("ARPoseReceiver", "SetPose", JSON.stringify(pose));
+    }
+});
+
+// Attach the component to the marker
+document.querySelector("#marker").setAttribute("sendpose", "");
+</script>
+
+</body>
+</html>
