@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<body style="margin:0; overflow:hidden; background:black;">
+
+<!-- Unity canvas -->
+<canvas id="unity-canvas" style="width:100vw; height:100vh; background:transparent;"></canvas>
+
+<script>
+// ---------------------------------------------------------
+// 1. LOAD UNITY
+// ---------------------------------------------------------
+var unityInstance = null;
+
+var config = {
+    dataUrl: "Build/build.data",        // <-- change to your actual filenames
+    frameworkUrl: "Build/build.js",
+    codeUrl: "Build/build.wasm",
+    streamingAssetsUrl: "StreamingAssets",
+    companyName: "BL",
+    productName: "visitenkarte",
+    productVersion: "1.0",
+    webglContextAttributes: { alpha:true }
+};
+
+var script = document.createElement("script");
+script.src = "Build/build.loader.js";   // <-- change to your actual loader file
+script.onload = () => {
+    createUnityInstance(document.getElementById("unity-canvas"), config)
+    .then(instance => unityInstance = instance);
+};
+document.body.appendChild(script);
+
+
+// ---------------------------------------------------------
+// 2. LOAD JSARToolKit + THE PATTERN
+// ---------------------------------------------------------
+<script src="https://cdn.jsdelivr.net/npm/jsartoolkit5/build/artoolkit.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsartoolkit5/js/artoolkit.api.js"></script>
+
+var arController = null;
+var video = document.createElement("video");
+video.autoplay = true;
+video.playsInline = true;
+
+navigator.mediaDevices.getUserMedia({ video: { facingMode:"environment" } })
+.then(stream => {
+    video.srcObject = stream;
+    video.onloadedmetadata = startAR;
+});
+
+// ---------------------------------------------------------
+// 3. SETUP AR CONTROLLER
+// ---------------------------------------------------------
+function startAR() {
+    var width = video.videoWidth;
+    var height = video.videoHeight;
+
+    ARController.getUserMediaARController(width, height, "visitenkartenmarker.patt")
+    .then(controller => {
+        arController = controller;
+        update();
+    });
+}
+
+// ---------------------------------------------------------
+// 4. MAIN LOOP — DETECT MARKER → SEND POSE TO UNITY
+// ---------------------------------------------------------
+function update() {
+    requestAnimationFrame(update);
+
+    if (!arController || !unityInstance) return;
+
+    arController.process(video);
+
+    // Detect ID=0 marker (only one .patt exists)
+    if (arController.getMarkerNum() > 0) {
+        var marker = arController.getMarker(0);
+
+        // Extract 3D pose
+        var m = marker.matrix;
+        var px = m[12], py = -m[13], pz = m[14];
+
+        // Quick rotation extraction (simple Euler)
+        var rx = Math.atan2(m[6], m[10]) * 57.2958;
+        var ry = Math.asin(-m[2]) * 57.2958;
+        var rz = Math.atan2(m[1], m[0]) * 57.2958;
+
+        // Send to Unity
+        unityInstance.SendMessage(
+            "MarkerCubeSpawnerGO",
+            "OnCardPoseJson",
+            JSON.stringify({ px, py, pz, rx, ry, rz })
+        );
+    }
+}
+</script>
+
+</body>
+</html>

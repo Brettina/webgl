@@ -1,128 +1,99 @@
 <!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <title>Unity + AR.js</title>
+<html>
+<body style="margin:0; overflow:hidden; background:black;">
 
-  <!-- A-Frame + AR.js -->
-  <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js/aframe/build/aframe-ar.js"></script>
+<!-- Unity canvas -->
+<canvas id="unity-canvas" style="width:100vw; height:100vh; background:transparent;"></canvas>
 
-  <!-- Unity loader (fix file name to your own) -->
-  <script src="Build/YOURBUILD.loader.js"></script>
+<script>
+// ---------------------------------------------------------
+// 1. LOAD UNITY
+// ---------------------------------------------------------
+var unityInstance = null;
 
-  <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      overflow: hidden;
-      width: 100%;
-      height: 100%;
-      background: #000;
-    }
+var config = {
+    dataUrl: "Build/build.data",        // <-- change to your actual filenames
+    frameworkUrl: "Build/build.js",
+    codeUrl: "Build/build.wasm",
+    streamingAssetsUrl: "StreamingAssets",
+    companyName: "BL",
+    productName: "visitenkarte",
+    productVersion: "1.0",
+    webglContextAttributes: { alpha:true }
+};
 
-    #hint {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      padding: 8px 12px;
-      text-align: center;
-      font-family: sans-serif;
-      font-size: 16px;
-      background: rgba(0, 0, 0, 0.6);
-      color: #fff;
-      z-index: 1000;
-    }
+var script = document.createElement("script");
+script.src = "Build/build.loader.js";   // <-- change to your actual loader file
+script.onload = () => {
+    createUnityInstance(document.getElementById("unity-canvas"), config)
+    .then(instance => unityInstance = instance);
+};
+document.body.appendChild(script);
 
-    #unity-canvas {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
-      z-index: 500;        /* on top of video */
-      background: transparent;
-    }
 
-    a-scene {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100vw;
-      height: 100vh;
-      z-index: 100;        /* under Unity and hint */
-    }
-  </style>
+// ---------------------------------------------------------
+// 2. LOAD JSARToolKit + THE PATTERN
+// ---------------------------------------------------------
+<script src="https://cdn.jsdelivr.net/npm/jsartoolkit5/build/artoolkit.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsartoolkit5/js/artoolkit.api.js"></script>
 
-  <script>
-    let unityInstance = null;
+var arController = null;
+var video = document.createElement("video");
+video.autoplay = true;
+video.playsInline = true;
 
-    // Start Unity once the page has loaded
-    function startUnity() {
-      const canvas = document.getElementById("unity-canvas");
+navigator.mediaDevices.getUserMedia({ video: { facingMode:"environment" } })
+.then(stream => {
+    video.srcObject = stream;
+    video.onloadedmetadata = startAR;
+});
 
-      createUnityInstance(canvas, {
-        dataUrl: "Build/YOURBUILD.data",
-        frameworkUrl: "Build/YOURBUILD.framework.js",
-        codeUrl: "Build/YOURBUILD.wasm",
-      }).then(instance => {
-        unityInstance = instance;
-        console.log("Unity started");
-      }).catch(err => {
-        console.error(err);
-        alert("Unity failed to load, check console for details.");
-      });
-    }
+// ---------------------------------------------------------
+// 3. SETUP AR CONTROLLER
+// ---------------------------------------------------------
+function startAR() {
+    var width = video.videoWidth;
+    var height = video.videoHeight;
 
-    // A-Frame component to send marker pose to Unity every frame
-    AFRAME.registerComponent('send-pose-to-unity', {
-      tick: function () {
-        if (!unityInstance) return;
-
-        const obj3D = this.el.object3D;
-        if (!obj3D.visible) return;
-
-        const pos = new THREE.Vector3();
-        const quat = new THREE.Quaternion();
-        const scale = new THREE.Vector3();
-
-        obj3D.matrixWorld.decompose(pos, quat, scale);
-
-        const pose = {
-          px: pos.x, py: pos.y, pz: pos.z,
-          qx: quat.x, qy: quat.y, qz: quat.z, qw: quat.w
-        };
-
-        // GameObject name must match: PoseReceiverGO
-        unityInstance.SendMessage("PoseReceiverGO", "SetPose", JSON.stringify(pose));
-      }
+    ARController.getUserMediaARController(width, height, "visitenkartenmarker.patt")
+    .then(controller => {
+        arController = controller;
+        update();
     });
-  </script>
-</head>
+}
 
-<body onload="startUnity()">
-  <!-- Text above the AR screen -->
-  <div id="hint">move the visitenkarte to the camer</div>
+// ---------------------------------------------------------
+// 4. MAIN LOOP — DETECT MARKER → SEND POSE TO UNITY
+// ---------------------------------------------------------
+function update() {
+    requestAnimationFrame(update);
 
-  <!-- Unity canvas -->
-  <canvas id="unity-canvas"></canvas>
+    if (!arController || !unityInstance) return;
 
-  <!-- AR.js scene: only tracking, no red box any more -->
-  <a-scene
-    embedded
-    vr-mode-ui="enabled: false"
-    arjs="sourceType: webcam; debugUIEnabled: true;"
-  >
-    <a-marker
-      type="pattern"
-      url="visitenkartenmarker.patt"
-      send-pose-to-unity
-    >
-      <!-- nothing inside; Unity does the visuals -->
-    </a-marker>
+    arController.process(video);
 
-    <a-entity camera></a-entity>
-  </a-scene>
+    // Detect ID=0 marker (only one .patt exists)
+    if (arController.getMarkerNum() > 0) {
+        var marker = arController.getMarker(0);
+
+        // Extract 3D pose
+        var m = marker.matrix;
+        var px = m[12], py = -m[13], pz = m[14];
+
+        // Quick rotation extraction (simple Euler)
+        var rx = Math.atan2(m[6], m[10]) * 57.2958;
+        var ry = Math.asin(-m[2]) * 57.2958;
+        var rz = Math.atan2(m[1], m[0]) * 57.2958;
+
+        // Send to Unity
+        unityInstance.SendMessage(
+            "MarkerCubeSpawnerGO",
+            "OnCardPoseJson",
+            JSON.stringify({ px, py, pz, rx, ry, rz })
+        );
+    }
+}
+</script>
+
 </body>
 </html>

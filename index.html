@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <title>Unity WebGL Player | visitenkarte</title>
+    <link rel="shortcut icon" href="TemplateData/favicon.ico">
+    <link rel="stylesheet" href="TemplateData/style.css">
+    <style>
+      html, body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+      }
+      #unity-canvas {
+        background: transparent; /* allow camera video behind, if you have it */
+      }
+    </style>
+  </head>
+  <body>
+    <div id="unity-container" class="unity-desktop">
+      <canvas id="unity-canvas" width="960" height="600"></canvas>
+      <div id="unity-loading-bar">
+        <div id="unity-logo"></div>
+        <div id="unity-progress-bar-empty">
+          <div id="unity-progress-bar-full"></div>
+        </div>
+      </div>
+      <div id="unity-warning"></div>
+      <div id="unity-footer">
+        <div id="unity-webgl-logo"></div>
+        <div id="unity-fullscreen-button"></div>
+        <div id="unity-build-title">visitenkarte</div>
+      </div>
+    </div>
+
+    <script>
+      var unityInstance = null;  // <--- global reference for SendMessage
+
+      var container = document.querySelector("#unity-container");
+      var canvas = document.querySelector("#unity-canvas");
+      var loadingBar = document.querySelector("#unity-loading-bar");
+      var progressBarFull = document.querySelector("#unity-progress-bar-full");
+      var fullscreenButton = document.querySelector("#unity-fullscreen-button");
+      var warningBanner = document.querySelector("#unity-warning");
+
+      function unityShowBanner(msg, type) {
+        function updateBannerVisibility() {
+          warningBanner.style.display = warningBanner.children.length ? 'block' : 'none';
+        }
+        var div = document.createElement('div');
+        div.innerHTML = msg;
+        warningBanner.appendChild(div);
+        if (type == 'error') div.style = 'background: red; padding: 10px;';
+        else {
+          if (type == 'warning') div.style = 'background: yellow; padding: 10px;';
+          setTimeout(function () {
+            warningBanner.removeChild(div);
+            updateBannerVisibility();
+          }, 5000);
+        }
+        updateBannerVisibility();
+      }
+
+      var buildUrl = "Build";
+      var loaderUrl = buildUrl + "/docs.loader.js";
+      var config = {
+  dataUrl:      buildUrl + "/caac1c17efcd83ecb242008a1b6670fc.data",
+  frameworkUrl: buildUrl + "/fb400e81d33ecd7f3f045b5f4fa99f3.js",
+  codeUrl:      buildUrl + "/c3e55d36d765b53a6565c20657c5c35a.wasm",
+  // ...rest stays as you have it
+    streamingAssetsUrl: "StreamingAssets",
+        companyName: "BL",
+        productName: "visitenkarte",
+        productVersion: "0.1",
+        showBanner: unityShowBanner,
+
+        // IMPORTANT: allow alpha so the canvas can be transparent
+        webglContextAttributes: {
+          alpha: true
+        }
+      };
+
+      // (keep your existing mobile / desktop sizing logic)
+      if (/iPhone|iPad|iPod|Android/i.test(navigator.userAgent)) {
+        var meta = document.createElement('meta');
+        meta.name = 'viewport';
+        meta.content = 'width=device-width, height=device-height, initial-scale=1.0, user-scalable=no, shrink-to-fit=yes';
+        document.getElementsByTagName('head')[0].appendChild(meta);
+        container.className = "unity-mobile";
+        canvas.className = "unity-mobile";
+        // config.devicePixelRatio = 1;
+        unityShowBanner('WebGL builds are not supported on mobile devices.');
+      } else {
+        canvas.style.width = "960px";
+        canvas.style.height = "600px";
+      }
+
+      loadingBar.style.display = "block";
+
+      var script = document.createElement("script");
+      script.src = loaderUrl;
+      script.onload = () => {
+        createUnityInstance(canvas, config, (progress) => {
+          progressBarFull.style.width = (100 * progress) + "%";
+        }).then((instance) => {
+          unityInstance = instance;  // <--- save reference
+
+          loadingBar.style.display = "none";
+          fullscreenButton.onclick = () => {
+            unityInstance.SetFullscreen(1);
+          };
+        }).catch((message) => {
+          alert(message);
+        });
+      };
+      document.body.appendChild(script);
+
+      // ------------------------------------------------------------------
+      //  Function your patt-tracking code should call when it has the pose
+      // ------------------------------------------------------------------
+      // All math stays in Unity; JS just forwards the numbers.
+      // Position & rotation are in whatever coordinate system you decided;
+      // just stay consistent between JS and Unity.
+      window.SetCardPoseFromPatt = function (px, py, pz, rx, ry, rz) {
+        if (!unityInstance) return;
+
+        var payload = {
+          px: px, py: py, pz: pz,
+          rx: rx, ry: ry, rz: rz
+        };
+
+        // "MarkerCubeSpawnerGO" must be the name of the GameObject
+        // with the MarkerCubeSpawner script on it.
+        unityInstance.SendMessage(
+          "MarkerCubeSpawnerGO",
+          "OnCardPoseJson",
+          JSON.stringify(payload)
+        );
+      };
+    </script>
+  </body>
+</html>
