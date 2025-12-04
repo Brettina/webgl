@@ -2,23 +2,109 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>AR.js marker test</title>
+  <title>Unity + AR.js</title>
 
   <!-- A-Frame + AR.js -->
   <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js/aframe/build/aframe-ar.js"></script>
 
+  <!-- Unity stuff (use what your build generated; this is just the usual pattern) -->
+  <script src="Build/yourbuild.loader.js"></script>
+
   <style>
-    body, html { margin: 0; overflow: hidden; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+    }
+
+    /* Text above the AR screen */
+    #hint {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      padding: 8px 12px;
+      text-align: center;
+      font-family: sans-serif;
+      font-size: 16px;
+      background: rgba(0, 0, 0, 0.6);
+      color: white;
+      z-index: 1000;
+    }
+
+    /* Make sure Unity canvas and AR.js video sit under the hint text */
+    #unity-canvas, a-scene {
+      position: fixed;
+      top: 0;
+      left: 0;
+    }
   </style>
+
+  <script>
+    let unityInstance = null;
+
+    // Called once Unity is loaded
+    function startUnity() {
+      const canvas = document.querySelector("#unity-canvas");
+
+      createUnityInstance(canvas, {
+        dataUrl: "Build/yourbuild.data",
+        frameworkUrl: "Build/yourbuild.framework.js",
+        codeUrl: "Build/yourbuild.wasm",
+      }).then(instance => {
+        unityInstance = instance;
+      }).catch(alert);
+    }
+
+    // A-Frame component that sends the marker pose to Unity every frame
+    AFRAME.registerComponent('send-pose-to-unity', {
+      tick: function () {
+        if (!unityInstance) return;
+        const obj3D = this.el.object3D;
+        if (!obj3D.visible) return;
+
+        // Get marker world pose
+        const pos  = new THREE.Vector3();
+        const quat = new THREE.Quaternion();
+        const scale = new THREE.Vector3();
+        obj3D.matrixWorld.decompose(pos, quat, scale);
+
+        const pose = {
+          px: pos.x, py: pos.y, pz: pos.z,
+          qx: quat.x, qy: quat.y, qz: quat.z, qw: quat.w
+        };
+
+        // "PoseReceiverGO" must be the GameObject name that has the PoseReceiver script
+        unityInstance.SendMessage("PoseReceiverGO", "SetPose", JSON.stringify(pose));
+      }
+    });
+  </script>
 </head>
-<body>
+<body onload="startUnity()">
+
+  <!-- Instruction text -->
+  <div id="hint">move the visitenkarte to the camer</div>
+
+  <!-- Unity render canvas -->
+  <canvas id="unity-canvas"></canvas>
+
+  <!-- AR.js scene used only for tracking; no red box anymore -->
   <a-scene
     embedded
     vr-mode-ui="enabled: false"
     arjs="sourceType: webcam; debugUIEnabled: true;"
   >
-    <!-- Your marker file must sit next to index.html -->
-    <a-marker type="pattern" url="visitenkartenmarker.patt">
-      <!-- This red box should stick to the marker -->
-      <a-box position="0 0.5 0" material="color: red;"></a-box>
+    <!-- Custom marker, pose is sent to Unity -->
+    <a-marker
+      type="pattern"
+      url="visitenkartenmarker.patt"
+      send-pose-to-unity
+    >
+      <!-- nothing inside: Unity handles the visuals -->
+    </a-marker>
+
+    <a-entity camera></a-entity>
+  </a-scene>
+</body>
+</html>

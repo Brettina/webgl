@@ -257,8 +257,8 @@ MonoBehaviour:
   - {fileID: 581453512}
   pivot: {fileID: 590511413}
   speed: 30
-  mind: 1
-  maxd: 3
+  mind: 0.1
+  maxd: 0.3
 --- !u!4 &590511413
 Transform:
   m_ObjectHideFlags: 0
