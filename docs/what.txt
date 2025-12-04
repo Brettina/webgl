@@ -1,0 +1,4 @@
+python -m http.server 8080
+
+dannn hier in bworser
+http://localhost:8080/
