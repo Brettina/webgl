@@ -14,6 +14,7 @@
       padding: 0;
       overflow: hidden;
     }
+
     #banner {
       position: fixed;
       top: 0;
@@ -26,23 +27,54 @@
       text-align: center;
       z-index: 10;
     }
+
+    #ctaButton,
+    #ctaButton2 {
+      position: fixed;
+      padding: 10px 18px;
+      border: none;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.8);
+      color: #fff;
+      font-family: sans-serif;
+      font-size: 24px;
+      cursor: pointer;
+      z-index: 11;
+      display: none; /* shown via JS */
+    }
+
+    #ctaButton {
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+    }
+
+    #ctaButton2 {
+      bottom: 60px;
+      left: 50%;
+      transform: translateX(-50%);
+    }
   </style>
 
   <script>
-    // Float up and down
+    // Simple up/down float animation
     AFRAME.registerComponent('float-y', {
-      schema: { amplitude: {type: 'number', default: 0.25},
-                speed: {type: 'number', default: 1.0} },
-      init: function () { this.baseY = this.el.object3D.position.y; this.t = 0; },
+      schema: {
+        amplitude: {type: 'number', default: 0.25},
+        speed:      {type: 'number', default: 1.0}
+      },
+      init: function () {
+        this.baseY = this.el.object3D.position.y;
+        this.t = 0;
+      },
       tick: function (time, dt) {
         this.t += (dt / 1000) * this.data.speed;
         this.el.object3D.position.y =
           this.baseY + Math.sin(this.t) * this.data.amplitude;
       }
     });
-    
 
-    // Follow marker, but only update every N frames
+    // Follow a marker's position with throttled updates (no rotation)
     AFRAME.registerComponent('marker-follow-slow', {
       schema: {
         markerId: {type: 'string', default: '#visitenkarte-marker'},
@@ -60,25 +92,152 @@
         if (this.frame % this.data.interval !== 0) return;
 
         this.el.object3D.position.copy(this.marker.object3D.position);
-        this.el.object3D.quaternion.copy(this.marker.object3D.quaternion);
+      }
+    });
+
+    // Make an object always look at the camera
+    AFRAME.registerComponent('face-camera', {
+      init: function () {
+        this.camera = this.el.sceneEl.camera;
+      },
+      tick: function () {
+        if (!this.camera || !this.camera.position) {
+          this.camera = this.el.sceneEl.camera;
+          if (!this.camera) return;
+        }
+        this.el.object3D.lookAt(this.camera.position);
       }
     });
   </script>
+
   <script>
-  window.addEventListener("DOMContentLoaded", () => {
-    const vid = document.querySelector("#walk");
-    if (!vid) return;
+    window.addEventListener('DOMContentLoaded', () => {
+      // HTML elements
+      const marker1  = document.querySelector('#visitenkarte-marker');
+      const marker2  = document.querySelector('#second-marker');
+      const button1  = document.querySelector('#ctaButton');
+      const button2  = document.querySelector('#ctaButton2');
 
-    vid.addEventListener("loadeddata", () => {
-      vid.play().catch(() => {});
+      // A-Frame content entities
+      const content1 = document.querySelector('#content-marker1');
+      const content2 = document.querySelector('#content-marker2');
+
+      // Video assets
+      const video1   = document.querySelector('#explosion');
+      const video2   = document.querySelector('#trans');
+
+      // Durations
+// Duration settings
+const BUTTON_VISIBLE_MS = 10000; // buttons stay 10s
+const MEDIA_VISIBLE_MS  = 5000;  // media stays 5s
+
+      // Timeout handles
+      let button1Timeout  = null;
+      let button2Timeout  = null;
+      let content1Timeout = null;
+      let content2Timeout = null;
+
+      // Autoplay videos when ready (they're hidden via 'visible' anyway)
+      if (video1) {
+        video1.addEventListener('loadeddata', () => {
+          video1.play().catch(() => {});
+        });
+      }
+      if (video2) {
+        video2.addEventListener('loadeddata', () => {
+          video2.play().catch(() => {});
+        });
+      }
+
+      // Helper: show a button for limited time
+      function showButton(button, currentTimeout, setTimeoutFn) {
+        if (!button) return;
+
+        button.style.display = 'inline-block';
+
+        if (currentTimeout) {
+          clearTimeout(currentTimeout);
+        }
+
+        const id = setTimeout(() => {
+          button.style.display = 'none';
+        }, BUTTON_VISIBLE_MS);
+
+        setTimeoutFn(id);
+      }
+
+function showContent(entity, currentTimeout, setTimeoutFn) {
+  if (!entity) return;
+
+  entity.setAttribute('visible', true);
+
+  if (currentTimeout) {
+    clearTimeout(currentTimeout);
+  }
+
+  const id = setTimeout(() => {
+    entity.setAttribute('visible', false);
+  }, MEDIA_VISIBLE_MS); // media hides sooner than buttons
+
+  setTimeoutFn(id);
+}
+
+
+      // Marker 1 events
+      if (marker1) {
+        marker1.addEventListener('markerFound', () => {
+          console.log('marker1 FOUND');
+          showContent(
+            content1,
+            content1Timeout,
+            id => { content1Timeout = id; }
+          );
+          showButton(
+            button1,
+            button1Timeout,
+            id => { button1Timeout = id; }
+          );
+        });
+      }
+
+      // Marker 2 events
+      if (marker2) {
+        marker2.addEventListener('markerFound', () => {
+          console.log('marker2 FOUND');
+          showContent(
+            content2,
+            content2Timeout,
+            id => { content2Timeout = id; }
+          );
+          showButton(
+            button2,
+            button2Timeout,
+            id => { button2Timeout = id; }
+          );
+        });
+      }
+
+      // Button click actions
+      if (button1) {
+        button1.addEventListener('click', () => {
+          window.open('https://contra.com/lohr_bettina_68155kak/', '_blank');
+        });
+      }
+      if (button2) {
+        button2.addEventListener('click', () => {
+          window.open('https://www.linkedin.com/in/bettina-lohr-215756337', '_blank');
+        });
+      }
     });
-  });
-</script>
-
+  </script>
 </head>
 
 <body>
   <div id="banner">Turn your camera to the business card</div>
+
+  <!-- Overlay UI -->
+  <button id="ctaButton">Portfolio öffnen</button>
+  <button id="ctaButton2">LinkedIn öffnen</button>
 
   <a-scene
     embedded
@@ -87,25 +246,37 @@
   >
     <!-- Assets -->
     <a-assets>
+         <!--
       <img id="pic"  src="pic.png">
       <img id="snow" src="snow.gif">
-      <video id="walk" src="walk.webm"
-       loop autoplay muted playsinline
-       crossorigin="anonymous">
+-->
+      <video id="explosion" src="explosion.webm"
+             loop autoplay muted playsinline
+             crossorigin="anonymous">
       </video>
 
+      <video id="trans" src="trans2.webm"
+             loop autoplay muted playsinline
+             crossorigin="anonymous">
+      </video>
     </a-assets>
 
-    <!-- Marker: only tracking, no visual children -->
+    <!-- Markers -->
     <a-marker id="visitenkarte-marker"
               type="pattern"
-              url="visitenkartenmarker.patt">
+              url="visi1.patt">
     </a-marker>
 
-    <!-- Content that follows the marker, but only updates every few frames -->
-    <a-entity marker-follow-slow="markerId: #visitenkarte-marker; interval: 5">
+    <a-marker id="second-marker"
+              type="pattern"
+              url="visi2.patt">
+    </a-marker>
 
-      <!-- Blue cone -->
+    <!-- Content for marker 1 (hidden by default) -->
+    <a-entity id="content-marker1"
+              marker-follow-slow="markerId: #visitenkarte-marker; interval: 5"
+              visible="false">
+<!-- 
       <a-cone
         position="-0.5 0.6 0"
         radius-bottom="0.2"
@@ -113,29 +284,34 @@
         color="blue"
         float-y="amplitude: 0.1; speed: 1">
       </a-cone>
-
-      <!-- Snow GIF as image (transparent, static) -->
-      <a-image
-        src="#snow"
-        position="0 0.3 4.6"
+-->
+      <a-video
+        src="#explosion"
+        position="0 0 0"
         rotation="-90 0 0"
-        width="3.8" height="6.5"
-        material="transparent: true; alphaTest: 0.5"
-        float-y="amplitude: 0.05; speed: 0.8">
-      </a-image>
+        width="8"
+        height="4.5"
+        material="shader: flat; transparent: true; alphaTest: 0.01"
+        float-y="amplitude: 0.05; speed: 1"
+        face-camera>
+      </a-video>
+    </a-entity>
 
-      <!-- WebM animation -->
-<a-video
-  src="#walk"
-  position="0 1 0"
-  rotation="-90 0 0"
-  width="8"
-  height="4.5"
-  material="shader: flat; transparent: true; alphaTest: 0.01"
-  float-y="amplitude: 0.05; speed: 1">
-</a-video>
+    <!-- Content for marker 2 (hidden by default) -->
+    <a-entity id="content-marker2"
+              marker-follow-slow="markerId: #second-marker; interval: 5"
+              visible="false">
 
-
+      <a-video
+        src="#trans"
+        position="0 0 0"
+        rotation="0 0 0"
+        width="8"
+        height="4.5"
+        material="shader: flat; transparent: true; alphaTest: 0.01"
+        float-y="amplitude: 0.05; speed: 1"
+        face-camera>
+      </a-video>
     </a-entity>
 
     <!-- Camera -->
