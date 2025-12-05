@@ -7,6 +7,7 @@
   <!-- A-Frame + AR.js -->
   <script src="https://aframe.io/releases/1.3.0/aframe.min.js"></script>
   <script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js/aframe/build/aframe-ar.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/aframe-particle-system-component@1.0.1/dist/aframe-particle-system-component.min.js"></script>
 
   <style>
     html, body {
@@ -29,18 +30,18 @@
     }
 
     #ctaButton, #ctaButton2 {
-  position: fixed;
-  padding: 1rem 1.4rem;
-  border: none;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.8);
-  color: #fff;
-  font-family: sans-serif;
-  font-size: clamp(14px, 3vw, 22px); /* responsive text */
-  cursor: pointer;
-  z-index: 11;
-  display: none;
-}
+      position: fixed;
+      padding: 1rem 1.4rem;
+      border: none;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.8);
+      color: #fff;
+      font-family: sans-serif;
+      font-size: clamp(14px, 3vw, 22px);
+      cursor: pointer;
+      z-index: 11;
+      display: none;
+    }
 
     #ctaButton {
       bottom: 16px;
@@ -56,7 +57,7 @@
   </style>
 
   <script>
-    // Simple up/down float animation
+    // Float up/down animation
     AFRAME.registerComponent('float-y', {
       schema: {
         amplitude: {type: 'number', default: 0.25},
@@ -73,28 +74,26 @@
       }
     });
 
-AFRAME.registerComponent('marker-follow-slow', {
-  schema: {
-    markerId: {type: 'string', default: '#visitenkarte-marker'},
-    interval: {type: 'int', default: 5}
-  },
-  init: function () {
-    this.frame = 0;
-    this.marker = document.querySelector(this.data.markerId);
-  },
-  tick: function () {
-    if (!this.marker) return;
+    // Follow marker position with throttling (no rotation)
+    AFRAME.registerComponent('marker-follow-slow', {
+      schema: {
+        markerId: {type: 'string', default: '#visitenkarte-marker'},
+        interval: {type: 'int', default: 5}
+      },
+      init: function () {
+        this.frame = 0;
+        this.marker = document.querySelector(this.data.markerId);
+      },
+      tick: function () {
+        if (!this.marker) return;
+        if (!this.marker.object3D.visible) return;
 
-    // if the marker is visible, always reposition
-    if (this.marker.object3D.visible) {
-      this.frame++;
-      if (this.frame % this.data.interval !== 0) return;
+        this.frame++;
+        if (this.frame % this.data.interval !== 0) return;
 
-      this.el.object3D.position.copy(this.marker.object3D.position);
-    }
-  }
-});
-
+        this.el.object3D.position.copy(this.marker.object3D.position);
+      }
+    });
 
     // Make an object always look at the camera
     AFRAME.registerComponent('face-camera', {
@@ -109,36 +108,141 @@ AFRAME.registerComponent('marker-follow-slow', {
         this.el.object3D.lookAt(this.camera.position);
       }
     });
+
+    // Obvious parallax wobble
+    AFRAME.registerComponent('parallax-wobble', {
+      schema: { intensity: {type: 'number', default: 0.4} },
+      init: function () {
+        this.camera = this.el.sceneEl.camera;
+      },
+      tick: function () {
+        if (!this.camera) return;
+
+        const camPos = this.camera.getWorldPosition(new THREE.Vector3());
+        const objPos = this.el.object3D.getWorldPosition(new THREE.Vector3());
+
+        const dx = camPos.x - objPos.x;
+        const dz = camPos.z - objPos.z;
+
+        this.el.object3D.rotation.x = -dz * this.data.intensity * 0.4;
+        this.el.object3D.rotation.y = dx * this.data.intensity;
+      }
+    });
+
+    // Strong scale pop when entity becomes visible=true
+    AFRAME.registerComponent('scale-pop-on-visible', {
+      schema: {
+        duration: {type: 'number', default: 400},
+        maxScale: {type: 'number', default: 1.3}
+      },
+      init: function () {
+        this.animating = false;
+        this.startTime = 0;
+        this.baseScale = this.el.object3D.scale.clone();
+
+        this.el.addEventListener('componentchanged', (e) => {
+          if (e.detail.name === 'visible' && this.el.getAttribute('visible')) {
+            this.animating = true;
+            this.startTime = 0;
+            this.el.object3D.scale.copy(this.baseScale);
+          }
+        });
+      },
+      tick: function (time) {
+        if (!this.animating) return;
+        if (!this.startTime) this.startTime = time;
+
+        const t = time - this.startTime;
+        const progress = Math.min(t / this.data.duration, 1);
+
+        const s = 1 + (this.data.maxScale - 1) * Math.sin(progress * Math.PI);
+        this.el.object3D.scale.set(
+          this.baseScale.x * s,
+          this.baseScale.y * s,
+          this.baseScale.z * s
+        );
+
+        if (progress >= 1) {
+          this.el.object3D.scale.copy(this.baseScale);
+          this.animating = false;
+        }
+      }
+    });
+
+    // Simple Y spin
+    AFRAME.registerComponent('spin-y', {
+      schema: { speed: {type: 'number', default: 60} },
+      tick: function (time, dt) {
+        const radiansPerSec = this.data.speed * Math.PI / 180;
+        this.el.object3D.rotation.y += radiansPerSec * (dt / 1000);
+      }
+    });
+
+    // Particle burst when markerFound (attach to <a-marker>)
+    AFRAME.registerComponent('burst-on-found', {
+      schema: { color: {default: '#33ccff'} },
+      init: function () {
+        const marker = this.el;
+        marker.addEventListener('markerFound', () => {
+          const p = document.createElement('a-entity');
+          p.setAttribute('position', '0 0 0');
+          p.setAttribute('particle-system', {
+            preset: 'snow',
+            color: this.data.color,
+            particleCount: 80,
+            duration: 0.8,
+            size: 0.3
+          });
+          marker.appendChild(p);
+          setTimeout(() => p.remove(), 1000);
+        });
+      }
+    });
+
+    // NEW: self-contained lifetime control for content entities
+    AFRAME.registerComponent('timed-visible', {
+      schema: { duration: {type: 'number', default: 5000} }, // ms
+      init: function () {
+        this.visibleUntil = 0;
+        this.activate = this.activate.bind(this);
+        this.el.addEventListener('activate-visibility', this.activate);
+      },
+      remove: function () {
+        this.el.removeEventListener('activate-visibility', this.activate);
+      },
+      activate: function () {
+        this.visibleUntil = Date.now() + this.data.duration;
+        this.el.setAttribute('visible', true);
+      },
+      tick: function () {
+        if (!this.visibleUntil) return;
+        if (Date.now() > this.visibleUntil && this.el.getAttribute('visible')) {
+          this.el.setAttribute('visible', false);
+        }
+      }
+    });
   </script>
 
   <script>
     window.addEventListener('DOMContentLoaded', () => {
-      // HTML elements
       const marker1  = document.querySelector('#visitenkarte-marker');
       const marker2  = document.querySelector('#second-marker');
       const button1  = document.querySelector('#ctaButton');
       const button2  = document.querySelector('#ctaButton2');
 
-      // A-Frame content entities
       const content1 = document.querySelector('#content-marker1');
       const content2 = document.querySelector('#content-marker2');
 
-      // Video assets
       const video1   = document.querySelector('#explosion');
       const video2   = document.querySelector('#trans');
 
-      // Durations
-// Duration settings
-const BUTTON_VISIBLE_MS = 10000; // buttons stay 10s
-const MEDIA_VISIBLE_MS  = 5000;  // media stays 5s
+      const BUTTON_VISIBLE_MS = 10000; // buttons stay 10s
+      const MEDIA_VISIBLE_MS  = 5000;  // media stays 5s  (used by timed-visible)
 
-      // Timeout handles
       let button1Timeout  = null;
       let button2Timeout  = null;
-      let content1Timeout = null;
-      let content2Timeout = null;
 
-      // Autoplay videos when ready (they're hidden via 'visible' anyway)
+      // Autoplay videos when ready
       if (video1) {
         video1.addEventListener('loadeddata', () => {
           video1.play().catch(() => {});
@@ -150,7 +254,6 @@ const MEDIA_VISIBLE_MS  = 5000;  // media stays 5s
         });
       }
 
-      // Helper: show a button for limited time
       function showButton(button, currentTimeout, setTimeoutFn) {
         if (!button) return;
 
@@ -167,32 +270,18 @@ const MEDIA_VISIBLE_MS  = 5000;  // media stays 5s
         setTimeoutFn(id);
       }
 
-function showContent(entity, currentTimeout, setTimeoutFn) {
-  if (!entity) return;
-
-  entity.setAttribute('visible', true);
-
-  if (currentTimeout) {
-    clearTimeout(currentTimeout);
-  }
-
-  const id = setTimeout(() => {
-    entity.setAttribute('visible', false);
-  }, MEDIA_VISIBLE_MS); // media hides sooner than buttons
-
-  setTimeoutFn(id);
-}
-
+      // Now content visibility is handled by the 'timed-visible' component
+      function showContent(entity) {
+        if (!entity) return;
+        entity.setAttribute('timed-visible', `duration: ${MEDIA_VISIBLE_MS}`);
+        entity.emit('activate-visibility');
+      }
 
       // Marker 1 events
       if (marker1) {
         marker1.addEventListener('markerFound', () => {
           console.log('marker1 FOUND');
-          showContent(
-            content1,
-            content1Timeout,
-            id => { content1Timeout = id; }
-          );
+          showContent(content1);
           showButton(
             button1,
             button1Timeout,
@@ -205,11 +294,7 @@ function showContent(entity, currentTimeout, setTimeoutFn) {
       if (marker2) {
         marker2.addEventListener('markerFound', () => {
           console.log('marker2 FOUND');
-          showContent(
-            content2,
-            content2Timeout,
-            id => { content2Timeout = id; }
-          );
+          showContent(content2);
           showButton(
             button2,
             button2Timeout,
@@ -218,7 +303,6 @@ function showContent(entity, currentTimeout, setTimeoutFn) {
         });
       }
 
-      // Button click actions
       if (button1) {
         button1.addEventListener('click', () => {
           window.open('https://contra.com/lohr_bettina_68155kak/', '_blank');
@@ -237,8 +321,8 @@ function showContent(entity, currentTimeout, setTimeoutFn) {
   <div id="banner">Turn your camera to the business card</div>
 
   <!-- Overlay UI -->
-  <button id="ctaButton">Portfolio öffnen</button>
-  <button id="ctaButton2">LinkedIn öffnen</button>
+  <button id="ctaButton">Open Portfolio</button>
+  <button id="ctaButton2">Open LinkedIn</button>
 
   <a-scene
     embedded
@@ -247,10 +331,6 @@ function showContent(entity, currentTimeout, setTimeoutFn) {
   >
     <!-- Assets -->
     <a-assets>
-         <!--
-      <img id="pic"  src="pic.png">
-      <img id="snow" src="snow.gif">
--->
       <video id="explosion" src="explosion.webm"
              loop autoplay muted playsinline
              crossorigin="anonymous">
@@ -265,54 +345,58 @@ function showContent(entity, currentTimeout, setTimeoutFn) {
     <!-- Markers -->
     <a-marker id="visitenkarte-marker"
               type="pattern"
-              url="visi1.patt">
+              url="visitenkartenmarker.patt"
+              burst-on-found="color: #00aaff">
     </a-marker>
 
     <a-marker id="second-marker"
               type="pattern"
-              url="visi2.patt">
+              url="visi2+.patt"
+              burst-on-found="color: #ffaa00">
     </a-marker>
 
-    <!-- Content for marker 1 (hidden by default) -->
+    <!-- Content for marker 1 -->
     <a-entity id="content-marker1"
+              visible="false"
               marker-follow-slow="markerId: #visitenkarte-marker; interval: 5"
-              visible="false">
-<!-- 
-      <a-cone
-        position="-0.5 0.6 0"
-        radius-bottom="0.2"
-        height="1.5"
-        color="blue"
-        float-y="amplitude: 0.1; speed: 1">
-      </a-cone>
--->
+              scale-pop-on-visible
+              timed-visible="duration: 5000">
+
+      <!-- main video -->
       <a-video
         src="#explosion"
-        position="0 0 0"
+        position="0 0.1 0"
         rotation="-90 0 0"
         width="8"
         height="4.5"
         material="shader: flat; transparent: true; alphaTest: 0.01"
-        float-y="amplitude: 0.05; speed: 1"
-        face-camera>
+        float-y="amplitude: 0.1; speed: 1"
+        face-camera
+        parallax-wobble>
       </a-video>
+
     </a-entity>
 
-    <!-- Content for marker 2 (hidden by default) -->
+    <!-- Content for marker 2 -->
     <a-entity id="content-marker2"
+              visible="false"
               marker-follow-slow="markerId: #second-marker; interval: 5"
-              visible="false">
+              scale-pop-on-visible
+              timed-visible="duration: 5000">
 
+      <!-- main video -->
       <a-video
         src="#trans"
-        position="0 0 0"
+        position="0 0.1 0"
         rotation="0 0 0"
         width="8"
         height="4.5"
         material="shader: flat; transparent: true; alphaTest: 0.01"
-        float-y="amplitude: 0.05; speed: 1"
-        face-camera>
+        float-y="amplitude: 0.1; speed: 1"
+        face-camera
+        parallax-wobble>
       </a-video>
+
     </a-entity>
 
     <!-- Camera -->

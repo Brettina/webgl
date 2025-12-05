@@ -1,4 +1,4 @@
 python -m http.server 8080
 
-dannn hier in bworser
+dannn hier in browser
 http://localhost:8080/
