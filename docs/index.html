@@ -74,11 +74,41 @@
       }
     });
 
-    // Follow marker position with throttling (no rotation)
-    AFRAME.registerComponent('marker-follow-slow', {
+    // Hologram material helper
+    AFRAME.registerComponent('hologramify', {
+      schema: {
+        color:   {type: 'string', default: '#00ffff'},
+        opacity: {type: 'number', default: 0.5}
+      },
+      init: function () {
+        this.el.addEventListener('model-loaded', () => {
+          const obj = this.el.getObject3D('mesh');
+          if (!obj) return;
+          obj.traverse(node => {
+            if (!node.isMesh) return;
+            const mat = node.material;
+            if (!mat) return;
+
+            mat.transparent = true;
+            mat.opacity = this.data.opacity;
+            mat.color = new THREE.Color(this.data.color);
+            if (mat.emissive) {
+              mat.emissive = new THREE.Color(this.data.color);
+              mat.emissiveIntensity = 0.7;
+            }
+          });
+        });
+        this.el.addEventListener('model-error', (e) => {
+          console.error('[hologramify] model-error', e.detail);
+        });
+      }
+    });
+
+    // Follow a marker position + rotation (full pose)
+    AFRAME.registerComponent('marker-follow-full', {
       schema: {
         markerId: {type: 'string', default: '#visitenkarte-marker'},
-        interval: {type: 'int', default: 5}
+        interval: {type: 'int', default: 1}
       },
       init: function () {
         this.frame = 0;
@@ -86,12 +116,17 @@
       },
       tick: function () {
         if (!this.marker) return;
+
+        // We copy pose whenever AR.js says marker is visible
         if (!this.marker.object3D.visible) return;
 
         this.frame++;
         if (this.frame % this.data.interval !== 0) return;
 
-        this.el.object3D.position.copy(this.marker.object3D.position);
+        const src = this.marker.object3D;
+        const dst = this.el.object3D;
+        dst.position.copy(src.position);
+        dst.quaternion.copy(src.quaternion);
       }
     });
 
@@ -199,7 +234,7 @@
       }
     });
 
-    // NEW: self-contained lifetime control for content entities
+    // Lifetime control for content entities (videos)
     AFRAME.registerComponent('timed-visible', {
       schema: { duration: {type: 'number', default: 5000} }, // ms
       init: function () {
@@ -232,6 +267,9 @@
 
       const content1 = document.querySelector('#content-marker1');
       const content2 = document.querySelector('#content-marker2');
+
+      const holo1    = document.querySelector('#holo1');
+      const holo2    = document.querySelector('#holo2');
 
       const video1   = document.querySelector('#explosion');
       const video2   = document.querySelector('#trans');
@@ -270,7 +308,7 @@
         setTimeoutFn(id);
       }
 
-      // Now content visibility is handled by the 'timed-visible' component
+      // content visibility is handled by 'timed-visible'
       function showContent(entity) {
         if (!entity) return;
         entity.setAttribute('timed-visible', `duration: ${MEDIA_VISIBLE_MS}`);
@@ -287,6 +325,11 @@
             button1Timeout,
             id => { button1Timeout = id; }
           );
+          if (holo1) holo1.setAttribute('visible', true);
+        });
+        marker1.addEventListener('markerLost', () => {
+          console.log('marker1 LOST');
+          if (holo1) holo1.setAttribute('visible', false);
         });
       }
 
@@ -300,6 +343,11 @@
             button2Timeout,
             id => { button2Timeout = id; }
           );
+          if (holo2) holo2.setAttribute('visible', true);
+        });
+        marker2.addEventListener('markerLost', () => {
+          console.log('marker2 LOST');
+          if (holo2) holo2.setAttribute('visible', false);
         });
       }
 
@@ -340,6 +388,9 @@
              loop autoplay muted playsinline
              crossorigin="anonymous">
       </video>
+
+      <!-- 3D hologram model -->
+      <a-asset-item id="holoModel" src="hologram.glb"></a-asset-item>
     </a-assets>
 
     <!-- Markers -->
@@ -355,14 +406,39 @@
               burst-on-found="color: #ffaa00">
     </a-marker>
 
+    <!-- Hologram follower for marker 1 -->
+    <a-entity id="holo1"
+              visible="false"
+              marker-follow-full="markerId: #visitenkarte-marker; interval: 1"
+              scale-pop-on-visible>
+      <a-entity gltf-model="#holoModel"
+                position="0 0.3 0"
+                scale="0.4 0.4 0.4"
+                spin-y="speed: 35"
+                hologramify="color: #00ffff; opacity: 0.6">
+      </a-entity>
+    </a-entity>
+
+    <!-- Hologram follower for marker 2 -->
+    <a-entity id="holo2"
+              visible="false"
+              marker-follow-full="markerId: #second-marker; interval: 1"
+              scale-pop-on-visible>
+      <a-entity gltf-model="#holoModel"
+                position="0 0.3 0"
+                scale="0.4 0.4 0.4"
+                spin-y="speed: 35"
+                hologramify="color: #ffaa00; opacity: 0.6">
+      </a-entity>
+    </a-entity>
+
     <!-- Content for marker 1 -->
     <a-entity id="content-marker1"
               visible="false"
-              marker-follow-slow="markerId: #visitenkarte-marker; interval: 5"
+              marker-follow-full="markerId: #visitenkarte-marker; interval: 5"
               scale-pop-on-visible
               timed-visible="duration: 5000">
 
-      <!-- main video -->
       <a-video
         src="#explosion"
         position="0 0.1 0"
@@ -380,11 +456,10 @@
     <!-- Content for marker 2 -->
     <a-entity id="content-marker2"
               visible="false"
-              marker-follow-slow="markerId: #second-marker; interval: 5"
+              marker-follow-full="markerId: #second-marker; interval: 5"
               scale-pop-on-visible
               timed-visible="duration: 5000">
 
-      <!-- main video -->
       <a-video
         src="#trans"
         position="0 0.1 0"
