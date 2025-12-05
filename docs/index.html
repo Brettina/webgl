@@ -73,6 +73,54 @@
           this.baseY + Math.sin(this.t) * this.data.amplitude;
       }
     });
+// Smooth follow: update target pose every X ms, interpolate between
+AFRAME.registerComponent('marker-follow-smooth', {
+  schema: {
+    markerId:         {type: 'string', default: '#visitenkarte-marker'},
+    updateIntervalMs: {type: 'number', default: 2000}, // how often to sample marker
+    smoothness:       {type: 'number', default: 4}     // higher = faster interpolation
+  },
+
+  init: function () {
+    this.marker = document.querySelector(this.data.markerId);
+
+    this.targetPos  = new THREE.Vector3();
+    this.targetQuat = new THREE.Quaternion();
+
+    this.lastUpdateTime = 0;
+    this.initialized    = false;
+  },
+
+  tick: function (time, dt) {
+    if (!this.marker) return;
+
+    const markerObj = this.marker.object3D;
+
+    // Only update target from marker when marker is visible
+    if (markerObj.visible) {
+      const elapsed = time - this.lastUpdateTime;
+
+      if (!this.initialized || elapsed > this.data.updateIntervalMs) {
+        this.targetPos.copy(markerObj.position);
+        this.targetQuat.copy(markerObj.quaternion);
+
+        this.lastUpdateTime = time;
+        this.initialized = true;
+      }
+    }
+
+    // If we never had a visible marker yet, nothing to interpolate to
+    if (!this.initialized) return;
+
+    const obj = this.el.object3D;
+
+    // Exponential smoothing factor based on smoothness + dt
+    const alpha = 1 - Math.exp(-this.data.smoothness * (dt / 1000));
+
+    obj.position.lerp(this.targetPos, alpha);
+    obj.quaternion.slerp(this.targetQuat, alpha);
+  }
+});
 
     // Hologram material helper
     AFRAME.registerComponent('hologramify', {
@@ -205,13 +253,33 @@
     });
 
     // Simple Y spin
-    AFRAME.registerComponent('spin-y', {
+    AFRAME.registerComponent('spin-z', {
       schema: { speed: {type: 'number', default: 60} },
       tick: function (time, dt) {
         const radiansPerSec = this.data.speed * Math.PI / 180;
         this.el.object3D.rotation.y += radiansPerSec * (dt / 1000);
       }
     });
+
+    // Swing back and forth around Y (left-right wobble)
+AFRAME.registerComponent('swing-y', {
+  schema: {
+    speed:     {type: 'number', default: 1},   // cycles per second
+    amplitude: {type: 'number', default: 30}   // max angle in degrees
+  },
+  init: function () {
+    this.t = 0;
+    this.baseRotY = this.el.object3D.rotation.y;
+  },
+  tick: function (time, dt) {
+    this.t += (dt / 1000) * this.data.speed;
+    const angleRad = THREE.MathUtils.degToRad(
+      Math.sin(this.t) * this.data.amplitude
+    );
+    this.el.object3D.rotation.y = this.baseRotY + angleRad;
+  }
+});
+
 
     // Particle burst when markerFound (attach to <a-marker>)
     AFRAME.registerComponent('burst-on-found', {
@@ -258,111 +326,138 @@
     });
   </script>
 
-  <script>
-    window.addEventListener('DOMContentLoaded', () => {
-      const marker1  = document.querySelector('#visitenkarte-marker');
-      const marker2  = document.querySelector('#second-marker');
-      const button1  = document.querySelector('#ctaButton');
-      const button2  = document.querySelector('#ctaButton2');
+ <script>
+  window.addEventListener('DOMContentLoaded', () => {
+    const marker1  = document.querySelector('#visitenkarte-marker');
+    const marker2  = document.querySelector('#second-marker');
+    const button1  = document.querySelector('#ctaButton');
+    const button2  = document.querySelector('#ctaButton2');
 
-      const content1 = document.querySelector('#content-marker1');
-      const content2 = document.querySelector('#content-marker2');
+    const content1 = document.querySelector('#content-marker1');
+    const content2 = document.querySelector('#content-marker2');
 
-      const holo1    = document.querySelector('#holo1');
-      const holo2    = document.querySelector('#holo2');
+    const holo1    = document.querySelector('#holo1');
+    const holo2    = document.querySelector('#holo2');
 
-      const video1   = document.querySelector('#explosion');
-      const video2   = document.querySelector('#trans');
+    const video1   = document.querySelector('#explosion');
+    const video2   = document.querySelector('#trans');
 
-      const BUTTON_VISIBLE_MS = 10000; // buttons stay 10s
-      const MEDIA_VISIBLE_MS  = 5000;  // media stays 5s  (used by timed-visible)
+    const BUTTON_VISIBLE_MS = 10000; // buttons stay 10s
+    const MEDIA_VISIBLE_MS  = 5000;  // media stays 5s  (used by timed-visible)
 
-      let button1Timeout  = null;
-      let button2Timeout  = null;
+    let button1Timeout  = null;
+    let button2Timeout  = null;
 
-      // Autoplay videos when ready
-      if (video1) {
-        video1.addEventListener('loadeddata', () => {
-          video1.play().catch(() => {});
-        });
-      }
-      if (video2) {
-        video2.addEventListener('loadeddata', () => {
-          video2.play().catch(() => {});
-        });
-      }
+    // NEW: lock one holo + marker after the first activation
+    let lockedHoloId   = null; // 'holo1' or 'holo2'
+    let lockedMarkerId = null; // '#visitenkarte-marker' or '#second-marker'
 
-      function showButton(button, currentTimeout, setTimeoutFn) {
-        if (!button) return;
+    // Autoplay videos when ready
+    if (video1) {
+      video1.addEventListener('loadeddata', () => {
+        video1.play().catch(() => {});
+      });
+    }
+    if (video2) {
+      video2.addEventListener('loadeddata', () => {
+        video2.play().catch(() => {});
+      });
+    }
 
-        button.style.display = 'inline-block';
+    function showButton(button, currentTimeout, setTimeoutFn) {
+      if (!button) return;
 
-        if (currentTimeout) {
-          clearTimeout(currentTimeout);
-        }
+      button.style.display = 'inline-block';
 
-        const id = setTimeout(() => {
-          button.style.display = 'none';
-        }, BUTTON_VISIBLE_MS);
-
-        setTimeoutFn(id);
+      if (currentTimeout) {
+        clearTimeout(currentTimeout);
       }
 
-      // content visibility is handled by 'timed-visible'
-      function showContent(entity) {
-        if (!entity) return;
-        entity.setAttribute('timed-visible', `duration: ${MEDIA_VISIBLE_MS}`);
-        entity.emit('activate-visibility');
+      const id = setTimeout(() => {
+        button.style.display = 'none';
+      }, BUTTON_VISIBLE_MS);
+
+      setTimeoutFn(id);
+    }
+
+    // content visibility is handled by 'timed-visible'
+    function showContent(entity) {
+      if (!entity) return;
+      entity.setAttribute('timed-visible', `duration: ${MEDIA_VISIBLE_MS}`);
+      entity.emit('activate-visibility');
+    }
+
+    // NEW: activate a holo, but only allow the first one to "claim" the scene
+    function activateHolo(holoEl, markerSelector) {
+      if (!holoEl) return;
+
+      // First holo that appears locks the setup
+      if (!lockedHoloId) {
+        lockedHoloId   = holoEl.id;
+        lockedMarkerId = markerSelector;
       }
 
-      // Marker 1 events
-      if (marker1) {
-        marker1.addEventListener('markerFound', () => {
-          console.log('marker1 FOUND');
-          showContent(content1);
-          showButton(
-            button1,
-            button1Timeout,
-            id => { button1Timeout = id; }
-          );
-          if (holo1) holo1.setAttribute('visible', true);
-        });
-        marker1.addEventListener('markerLost', () => {
-          console.log('marker1 LOST');
-          if (holo1) holo1.setAttribute('visible', false);
-        });
+      // If this is not the locked holo, ignore it
+      if (lockedHoloId !== holoEl.id) {
+        return;
       }
 
-      // Marker 2 events
-      if (marker2) {
-        marker2.addEventListener('markerFound', () => {
-          console.log('marker2 FOUND');
-          showContent(content2);
-          showButton(
-            button2,
-            button2Timeout,
-            id => { button2Timeout = id; }
-          );
-          if (holo2) holo2.setAttribute('visible', true);
-        });
-        marker2.addEventListener('markerLost', () => {
-          console.log('marker2 LOST');
-          if (holo2) holo2.setAttribute('visible', false);
-        });
-      }
+      holoEl.setAttribute('visible', true);
+    }
 
-      if (button1) {
-        button1.addEventListener('click', () => {
-          window.open('https://contra.com/lohr_bettina_68155kak/', '_blank');
-        });
-      }
-      if (button2) {
-        button2.addEventListener('click', () => {
-          window.open('https://www.linkedin.com/in/bettina-lohr-215756337', '_blank');
-        });
-      }
-    });
-  </script>
+    // Marker 1 events
+    if (marker1) {
+      marker1.addEventListener('markerFound', () => {
+        console.log('marker1 FOUND');
+        showContent(content1);
+        showButton(
+          button1,
+          button1Timeout,
+          id => { button1Timeout = id; }
+        );
+        // NEW: use activateHolo (no hiding on markerLost anymore)
+        activateHolo(holo1, '#visitenkarte-marker');
+      });
+
+      marker1.addEventListener('markerLost', () => {
+        console.log('marker1 LOST (holo stays where it was)');
+        // IMPORTANT: do NOT set holo1 visible=false here
+      });
+    }
+
+    // Marker 2 events
+    if (marker2) {
+      marker2.addEventListener('markerFound', () => {
+        console.log('marker2 FOUND');
+        showContent(content2);
+        showButton(
+          button2,
+          button2Timeout,
+          id => { button2Timeout = id; }
+        );
+        // NEW: same locking logic
+        activateHolo(holo2, '#second-marker');
+      });
+
+      marker2.addEventListener('markerLost', () => {
+        console.log('marker2 LOST (holo stays where it was)');
+        // IMPORTANT: do NOT set holo2 visible=false here
+      });
+    }
+
+    if (button1) {
+      button1.addEventListener('click', () => {
+        window.open('https://contra.com/lohr_bettina_68155kak/', '_blank');
+      });
+    }
+    if (button2) {
+      button2.addEventListener('click', () => {
+        window.open('https://www.linkedin.com/in/bettina-lohr-215756337', '_blank');
+      });
+    }
+  });
+</script>
+
 </head>
 
 <body>
@@ -409,12 +504,15 @@
     <!-- Hologram follower for marker 1 -->
     <a-entity id="holo1"
               visible="false"
-              marker-follow-full="markerId: #visitenkarte-marker; interval: 1"
+          marker-follow-smooth="markerId: #visitenkarte-marker; updateIntervalMs: 2000; smoothness: 4"
               scale-pop-on-visible>
       <a-entity gltf-model="#holoModel"
-                position="0 0.3 0"
-                scale="0.4 0.4 0.4"
-                spin-y="speed: 35"
+                position="0 0.03 0"
+                rotation="0 90 0"
+                scale="1.9 1.9 1.9"
+                  spin-z="speed: 35"
+                   swing-y="speed: 0.8; amplitude: 35"
+
                 hologramify="color: #00ffff; opacity: 0.6">
       </a-entity>
     </a-entity>
@@ -422,12 +520,14 @@
     <!-- Hologram follower for marker 2 -->
     <a-entity id="holo2"
               visible="false"
-              marker-follow-full="markerId: #second-marker; interval: 1"
+          marker-follow-smooth="markerId: #visitenkarte-marker; updateIntervalMs: 2000; smoothness: 4"
               scale-pop-on-visible>
       <a-entity gltf-model="#holoModel"
-                position="0 0.3 0"
-                scale="0.4 0.4 0.4"
-                spin-y="speed: 35"
+                position="0 0.03 0"
+                rotation="0 90 0"
+                scale="1.4 1.4 1.4"
+                            swing-y="speed: 0.8; amplitude: 35"
+
                 hologramify="color: #ffaa00; opacity: 0.6">
       </a-entity>
     </a-entity>
