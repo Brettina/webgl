@@ -28,20 +28,19 @@
       z-index: 10;
     }
 
-    #ctaButton,
-    #ctaButton2 {
-      position: fixed;
-      padding: 10px 18px;
-      border: none;
-      border-radius: 999px;
-      background: rgba(0, 0, 0, 0.8);
-      color: #fff;
-      font-family: sans-serif;
-      font-size: 24px;
-      cursor: pointer;
-      z-index: 11;
-      display: none; /* shown via JS */
-    }
+    #ctaButton, #ctaButton2 {
+  position: fixed;
+  padding: 1rem 1.4rem;
+  border: none;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  font-family: sans-serif;
+  font-size: clamp(14px, 3vw, 22px); /* responsive text */
+  cursor: pointer;
+  z-index: 11;
+  display: none;
+}
 
     #ctaButton {
       bottom: 16px;
@@ -74,26 +73,28 @@
       }
     });
 
-    // Follow a marker's position with throttled updates (no rotation)
-    AFRAME.registerComponent('marker-follow-slow', {
-      schema: {
-        markerId: {type: 'string', default: '#visitenkarte-marker'},
-        interval: {type: 'int', default: 5}
-      },
-      init: function () {
-        this.frame = 0;
-        this.marker = document.querySelector(this.data.markerId);
-      },
-      tick: function () {
-        if (!this.marker) return;
-        if (!this.marker.object3D.visible) return;
+AFRAME.registerComponent('marker-follow-slow', {
+  schema: {
+    markerId: {type: 'string', default: '#visitenkarte-marker'},
+    interval: {type: 'int', default: 5}
+  },
+  init: function () {
+    this.frame = 0;
+    this.marker = document.querySelector(this.data.markerId);
+  },
+  tick: function () {
+    if (!this.marker) return;
 
-        this.frame++;
-        if (this.frame % this.data.interval !== 0) return;
+    // if the marker is visible, always reposition
+    if (this.marker.object3D.visible) {
+      this.frame++;
+      if (this.frame % this.data.interval !== 0) return;
 
-        this.el.object3D.position.copy(this.marker.object3D.position);
-      }
-    });
+      this.el.object3D.position.copy(this.marker.object3D.position);
+    }
+  }
+});
+
 
     // Make an object always look at the camera
     AFRAME.registerComponent('face-camera', {
